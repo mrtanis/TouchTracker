@@ -12,5 +12,6 @@
 @interface MRTDrawViewController : UIViewController
 @property (nonatomic, readwrite) MRTDrawView *viewToDraw;
 
+- (void)savePicBG;
 
 @end

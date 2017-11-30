@@ -41,6 +41,7 @@
 - (void)applicationDidEnterBackground:(UIApplication *)application {
     
     BOOL success = [self.dvc.viewToDraw saveDrawing];
+    [self.dvc savePicBG];
     if (success) {
         NSLog(@"Saved drawing");
     } else {

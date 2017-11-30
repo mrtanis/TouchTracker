@@ -16,6 +16,7 @@
                   forKey:@"pathColor"];
     [aCoder encodeObject:self.realPath forKey:@"realPath"];
     [aCoder encodeFloat:self.pathWidth forKey:@"pathWidth"];
+    [aCoder encodeBool:self.eraserMode forKey:@"eraserMode"];
 }
 
 - (instancetype)initWithCoder:(NSCoder *)aDecoder
@@ -25,6 +26,7 @@
         _pathColor = [aDecoder decodeObjectForKey:@"pathColor"];
         _realPath = [aDecoder decodeObjectForKey:@"realPath"];
         _pathWidth = [aDecoder decodeFloatForKey:@"pathWidth"];
+        _eraserMode = [aDecoder decodeBoolForKey:@"eraserMode"];
     }
     return self;
 }

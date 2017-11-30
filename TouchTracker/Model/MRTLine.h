@@ -12,7 +12,6 @@
 @interface MRTLine : NSObject <NSCoding>
 
 
-
 @property (nonatomic) CGPoint begin;
 @property (nonatomic) CGPoint end;
 @property (nonatomic) CGFloat lineWidth;

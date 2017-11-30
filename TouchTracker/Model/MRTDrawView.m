@@ -21,6 +21,8 @@
 @property (nonatomic, strong) NSMutableArray *finishedLines;
 @property (nonatomic, strong) NSMutableDictionary *pathsInProgress;
 @property (nonatomic, strong) NSMutableArray *realPaths;
+
+@property (nonatomic, strong) NSMutableArray *recycledPaths;//删除的path先存入回收站
 @property (nonatomic) CGPoint velocity;
 
 @property (nonatomic, weak) MRTLine *selectedLine;
@@ -28,6 +30,7 @@
 
 @property (strong, nonatomic) IBOutlet UIView *colorPanelView;
 @property (weak, nonatomic) IBOutlet UIButton *selectedColorButton;
+@property (weak, nonatomic) IBOutlet UIButton *eraserButton;
 @property (nonatomic, strong) UIColor *selectedColor;
 @property (strong, nonatomic) IBOutletCollection(UIButton) NSArray *colors;
 @property (weak, nonatomic) IBOutlet UISlider *redSlider;
@@ -43,10 +46,16 @@
 @property (nonatomic) CGFloat selectedWidth;
 @property (weak, nonatomic) IBOutlet UIButton *pathModeButton;
 @property (weak, nonatomic) IBOutlet UIButton *lineModeButton;
+@property (weak, nonatomic) IBOutlet UIButton *choosePicButton;
+@property (weak, nonatomic) IBOutlet UIButton *whiteBoardButton;
 @property (nonatomic) BOOL lineCircleMode;//直线和画圆模式
+
 @property (strong, nonatomic) IBOutlet UIView *widthView;
 @property (weak, nonatomic) IBOutlet UIButton *widthDotButton;
+@property (weak, nonatomic) IBOutlet UIView *TapRect;//用来相应点击手势的透明视图
 @property (weak, nonatomic) IBOutlet UISlider *widthSlider;
+@property (weak, nonatomic) IBOutlet UIButton *undoButton;
+@property (weak, nonatomic) IBOutlet UIButton *cancelUndoButton;
 
 @end
 
@@ -58,6 +67,14 @@
         _realPaths = [[NSMutableArray alloc] init];
     }
     return _realPaths;
+}
+
+- (NSMutableArray *)recycledPaths
+{
+    if (_recycledPaths == nil) {
+        _recycledPaths = [[NSMutableArray alloc] init];
+    }
+    return _recycledPaths;
 }
 
 - (instancetype)initWithFrame:(CGRect)r
@@ -76,19 +93,30 @@
         if (!_realPaths) {
             _realPaths = [[NSMutableArray alloc] init];
         }
-        
-        self.backgroundColor = [UIColor whiteColor];
-        _redValue = 0.0;
-        _greenValue = 0.0;
-        _blueValue = 0.0;
+        self.backgroundColor = [UIColor clearColor];
+        //读取上次保存的各种值
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        _redValue = [defaults floatForKey:@"redValue"];
+        _greenValue = [defaults floatForKey:@"greenValue"];
+        _blueValue = [defaults floatForKey:@"blueValue"];
+        _selectedWidth = [defaults floatForKey:@"selectedWidth"];
+        _lineCircleMode = [defaults boolForKey:@"lineCircleMode"];
+        _whiteBoardMode = [defaults boolForKey:@"whiteBoardMode"];
+    
         _selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
-        _selectedWidth = 5;
-        _lineCircleMode = NO;
+        
+        
+        //[_eraserButton setImage:[UIImage imageNamed:@"icon_eraser_close"] forState:UIControlStateNormal];
+        //[_eraserButton setImage:[UIImage imageNamed:@"icon_eraser_open"] forState:UIControlStateSelected];
+        //_eraserButton.selected = NO;
+        
         //添加多点触摸支持
         self.multipleTouchEnabled = YES;
         
+        //双击清屏
         UITapGestureRecognizer * doubleTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(doubleTap:)];
         doubleTapRecognizer.numberOfTapsRequired = 2;
+        doubleTapRecognizer.numberOfTouchesRequired = 2;
         if (self.lineCircleMode) {
             doubleTapRecognizer.delaysTouchesBegan = YES;//在识别出点击手势之前避免向UIView发送touchesBegan：withEvent：消息（避免画出小红点）
         } else {
@@ -96,11 +124,12 @@
         }
         [self addGestureRecognizer:doubleTapRecognizer];
         
-        UITapGestureRecognizer *tapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap:)];
+        //单击
+        /*UITapGestureRecognizer *tapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap:)];
 
         [tapRecognizer requireGestureRecognizerToFail:doubleTapRecognizer];//设置UITapGestureRecognizer在单击后不进行识别，直到确定不是双击手势后再识别为单击手势
         
-        [self addGestureRecognizer:tapRecognizer];
+        [self addGestureRecognizer:tapRecognizer];*/
         
         UILongPressGestureRecognizer *pressRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPress:)];
         [self addGestureRecognizer:pressRecognizer];
@@ -144,7 +173,7 @@
 - (void)popupColorView:(UIGestureRecognizer *)gr
 {
     [self.colorPanelView removeFromSuperview];
-    CGRect frame = CGRectMake(0, 0, self.window.bounds.size.width, 261);
+    CGRect frame = CGRectMake(0, -261, self.window.bounds.size.width, 261);
     [[NSBundle mainBundle] loadNibNamed:@"MRTColorPanel" owner:self options:nil];
     UIView *colorPanel = self.colorPanelView;
     [colorPanel setFrame:frame];
@@ -162,14 +191,20 @@
     self.greenSlider.value = self.greenValue;
     self.blueSlider.value = self.blueValue;
     
-    [self addSubview:colorPanel];
+    [self.fatherView addSubview:colorPanel];
+    
+    [UIView animateWithDuration:0.3 animations:^{
+        self.colorPanelView.frame = CGRectMake(0, 0, self.window.bounds.size.width, 261);
+    }];
+    
     [self setNeedsDisplay];
 }
 
 - (void)popupWidthView:(UIGestureRecognizer *)gr
 {
+    
     [self.widthView removeFromSuperview];
-    CGRect frame = CGRectMake(0, self.bounds.size.height - 76, self.bounds.size.width, 76);
+    CGRect frame = CGRectMake(0, self.bounds.size.height, self.bounds.size.width, 116);
     [[NSBundle mainBundle] loadNibNamed:@"MRTWidthView" owner:self options:nil];
     UIView *widthView = self.widthView;
     [widthView setFrame:frame];
@@ -178,73 +213,311 @@
     CGRect widthDotframe = CGRectMake(44 - halfWidth, 24 - halfWidth, self.selectedWidth, self.selectedWidth);
     [self.widthDotButton setFrame:widthDotframe];
     self.widthDotButton.layer.cornerRadius = halfWidth;
+    self.widthDotButton.backgroundColor = _selectedColor;
     
     self.pathModeButton.layer.cornerRadius = 5;
     self.lineModeButton.layer.cornerRadius = 5;
-    
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
-    if (self.lineCircleMode) {
-        self.lineModeButton.backgroundColor = color;
-        [self.lineModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    } else {
-        self.pathModeButton.backgroundColor = color;
-        [self.pathModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    }
-
-    
+    [self setPathModeButtonState];
 
     [self.widthView addSubview:self.widthDotButton];
     [self.widthSlider setValue:self.selectedWidth animated:YES];
-    [self addSubview:widthView];
+    [self setPaintingModeButtonState];
+    
+    [self setUndoAndCancelUndoButtonState];
+    
+    UITapGestureRecognizer *widthTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(hideWidthView:)];
+    widthTap.numberOfTouchesRequired = 1;
+    [self.TapRect addGestureRecognizer:widthTap];
+    [self.fatherView addSubview:widthView];
+    
+    [UIView animateWithDuration:0.3 animations:^{
+        self.widthView.frame = CGRectMake(0, self.bounds.size.height - 116, self.bounds.size.width, 116);
+    }];
+    
     [self setNeedsDisplay];
 }
 
-- (void)undo:(UIGestureRecognizer *)gr
-{
-    [self.realPaths removeLastObject];
-    [self setNeedsDisplay];
-}
 
 # pragma mark 颜色选择
 
 - (IBAction)redValue:(UISlider *)sender {
     self.redValue = sender.value;
-    self.selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
     self.selectedColorButton.backgroundColor = self.selectedColor;
+    self.selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
+    self.widthDotButton.backgroundColor = _selectedColor;
 }
 - (IBAction)greenValue:(UISlider *)sender {
     self.greenValue = sender.value;
-    self.selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
     self.selectedColorButton.backgroundColor = self.selectedColor;
+    self.selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
+    self.widthDotButton.backgroundColor = _selectedColor;
+  
 }
 - (IBAction)blueValue:(UISlider *)sender {
     self.blueValue = sender.value;
-    self.selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
     self.selectedColorButton.backgroundColor = self.selectedColor;
+    self.selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
+    self.widthDotButton.backgroundColor = _selectedColor;
 }
 
 
 - (IBAction)changeColor:(UIButton *)sender {
-    self.selectedColor = sender.backgroundColor;
-    self.selectedColorButton.backgroundColor = self.selectedColor;
+    UIColor *color = sender.backgroundColor;
+    
+    self.selectedColorButton.backgroundColor = color;
+    self.selectedColor = color;
+    self.widthDotButton.backgroundColor = _selectedColor;
+    
+    
+    CGFloat red = 0.0;
+    CGFloat green = 0.0;
+    CGFloat blue = 0.0;
+    CGFloat alpha = 0.0;
+    /*
+    [color getRed:&red green:&green blue:&blue alpha:&alpha];
+    NSLog(@"当前颜色%@", color);
+    NSLog(@"当前颜色rgb值:%f,%f,%f", red, green, blue);
+    _redSlider.value = red;
+    _greenSlider.value = green;
+    _blueSlider.value = blue;*/
+    
+    CGColorRef colorCG = [color CGColor];
+    NSUInteger numComponents = CGColorGetNumberOfComponents(colorCG);
+    
+    if (numComponents == 4)
+    {
+        const CGFloat *components = CGColorGetComponents(colorCG);
+        red = components[0];
+        green = components[1];
+        blue = components[2];
+    }
+    NSLog(@"当前颜色%@", color);
+    NSLog(@"当前CG颜色rgb值:%f,%f,%f", red, green, blue);
+    
+}
+- (IBAction)eraserButton:(id)sender {
+    self.eraserButton.selected = !self.eraserButton.selected;
+}
+
+- (IBAction)choosePicture:(id)sender {
+    _whiteBoardMode = NO;
+    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
+    self.whiteBoardButton.backgroundColor = [UIColor whiteColor];
+    [self.whiteBoardButton setTitleColor:color forState:UIControlStateNormal];
+    self.choosePicButton.backgroundColor = color;
+    [self.choosePicButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    if ([_delegate respondsToSelector:@selector(shouldPresentImagePicker:)]) {
+        [_delegate shouldPresentImagePicker:YES];
+    }
+}
+- (IBAction)whiteBoardMode:(id)sender {
+    _whiteBoardMode = YES;
+    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
+    self.choosePicButton.backgroundColor = [UIColor whiteColor];
+    [self.choosePicButton setTitleColor:color forState:UIControlStateNormal];
+    self.whiteBoardButton.backgroundColor = color;
+    [self.whiteBoardButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    if ([_delegate respondsToSelector:@selector(shouldPresentImagePicker:)]) {
+        [_delegate shouldPresentImagePicker:NO];
+    }
+}
+
+- (IBAction)savePainting:(id)sender {
+    UIImage *painting = [self getCurrentPainting];
+    UIImageWriteToSavedPhotosAlbum(painting, self, @selector(painting:didFinishSavingWithError:contextInfo:), nil);
+}
+
+- (void)painting:(UIImage *)painting didFinishSavingWithError:(NSError *)error contextInfo:(void *)contextInfo
+{
+    if ([_delegate respondsToSelector:@selector(painting:didFinishSavingWithError:contextInfo:)]) {
+        [_delegate painting:painting didFinishSavingWithError:error contextInfo:nil];
+    }
+    
+    
+}
+
+- (IBAction)sharePainting:(id)sender {
+    UIImage *painting = [self getCurrentPainting];
+    if ([_delegate respondsToSelector:@selector(sharePainting:)]) {
+        [_delegate sharePainting:painting];
+    }
+}
+
+- (UIImage *)getCurrentPainting
+{
+    /*
+    CGSize contextSize = self.bounds.size;
+    UIImage *image = _backgroundView.image;
+    CGFloat drawX = 0;
+    CGFloat drawY = 0;
+    CGFloat drawWidth = 0;
+    CGFloat drawHeight = 0;
+    CGFloat scale;
+    CGFloat screenScale = [UIScreen mainScreen].scale;
+    if (image) {
+        
+        CGSize imageSize = image.size;
+        
+        
+        if (imageSize.width / imageSize.height >= contextSize.width / contextSize.height) {
+            scale = contextSize.width / imageSize.width;
+            drawWidth = contextSize.width;
+            drawHeight = imageSize.height * scale;
+            drawX = 0;
+            drawY = (contextSize.height - drawHeight) * 0.5;
+        } else {
+            scale = contextSize.height / imageSize.height;
+            drawHeight = contextSize.height;
+            drawWidth = imageSize.width * scale;
+            drawY = 0;
+            drawX = (contextSize.width - drawWidth) * 0.5;
+        }
+    }
+    
+    
+    UIGraphicsBeginImageContextWithOptions(contextSize, NO, 0);
+    CGImageRef imageCG = NULL;//无需释放，只有使用了creat或retain才需要手动释放
+    if (image) {
+        imageCG = [_backgroundView.image CGImage];
+        
+        [[UIImage imageWithCGImage:imageCG scale:screenScale orientation:UIImageOrientationUp] drawInRect:CGRectMake(drawX, drawY, drawWidth, drawHeight)];
+    }
+    
+    
+    if (self.realPaths) {
+        for (int i = 0; i < self.realPaths.count; i++){
+            if ([self.realPaths[i] isKindOfClass:[MRTRealPath class]]) {
+                [self strokePath:self.realPaths[i]];
+            } else if ([self.realPaths[i] isKindOfClass:[MRTLine class]]) {
+                MRTLine *line = self.realPaths[i];
+                [self strokeLine:line];
+            } else if ([self.realPaths[i] isKindOfClass:[MRTCircle class]]) {
+                MRTCircle *circle = self.realPaths[i];
+                [self strokeCircle:circle];
+            }
+        }
+    }
+    
+    UIImage *painting = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+     */
+    
+    UIWindow*screenWindow = [[UIApplication sharedApplication]keyWindow];
+    
+    UIGraphicsBeginImageContextWithOptions(screenWindow.frame.size, NO, 0.0);
+    //[screenWindow.layer renderInContext:UIGraphicsGetCurrentContext()];
+    [_backgroundView.layer renderInContext:UIGraphicsGetCurrentContext()];
+    [self.layer renderInContext:UIGraphicsGetCurrentContext()];
+    
+    UIImage* painting =UIGraphicsGetImageFromCurrentImageContext();
+    
+    UIGraphicsEndImageContext();
+
+    return painting;
+    
+}
+
+- (IBAction)hideColorPanel:(id)sender {
+    [UIView animateWithDuration:0.3 animations:^{
+        self.colorPanelView.frame = CGRectMake(0, -261, self.window.bounds.size.width, 261);
+    } completion:^(BOOL finished) {
+        [self.colorPanelView removeFromSuperview];
+    }];
+    
+    
+}
+
+
+- (IBAction)hideWidthView:(id)sender {
+    NSLog(@"隐藏宽度视图");
+    [UIView animateWithDuration:0.3 animations:^{
+        self.widthView.frame = CGRectMake(0, self.bounds.size.height, self.bounds.size.width, 116);
+    } completion:^(BOOL finished) {
+        [self.widthView removeFromSuperview];
+    }];
+    
+}
+- (IBAction)undo:(id)sender {
+    if (self.realPaths.count) {
+        NSLog(@"前realPaths.count:%ld", self.realPaths.count);
+        NSLog(@"前recycledPaths.count:%ld", self.recycledPaths.count);
+        [self.recycledPaths addObject:self.realPaths.lastObject];
+        [self.realPaths removeLastObject];
+        NSLog(@"后realPaths.count:%ld", self.realPaths.count);
+        NSLog(@"后recycledPaths.count:%ld", self.recycledPaths.count);
+        
+    }
+    [self setUndoAndCancelUndoButtonState];
+    [self setNeedsDisplay];
+}
+- (IBAction)cancelUndo:(id)sender {
+    if (self.recycledPaths.count) {
+        NSLog(@"cancel前realPaths.count:%ld", self.realPaths.count);
+        NSLog(@"cancel前recycledPaths.count:%ld", self.recycledPaths.count);
+        [self.realPaths addObject:self.recycledPaths.lastObject];
+        [self.recycledPaths removeLastObject];
+        NSLog(@"cancel后realPaths.count:%ld", self.realPaths.count);
+        NSLog(@"cancel后recycledPaths.count:%ld", self.recycledPaths.count);
+    }
+    [self setUndoAndCancelUndoButtonState];
+    [self setNeedsDisplay];
+}
+
+- (void)setUndoAndCancelUndoButtonState
+{
+    if (self.realPaths.count) {
+        _undoButton.enabled = YES;
+    } else {
+        _undoButton.enabled = NO;
+    }
+    if (self.recycledPaths.count) {
+        _cancelUndoButton.enabled = YES;
+    } else {
+        _cancelUndoButton.enabled = NO;
+    }
+}
+
+- (void)setPathModeButtonState
+{
+    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
+    if (_lineCircleMode) {
+        self.pathModeButton.backgroundColor = [UIColor whiteColor];
+        [self.pathModeButton setTitleColor:color forState:UIControlStateNormal];
+        self.lineModeButton.backgroundColor = color;
+        [self.lineModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    } else {
+        self.lineModeButton.backgroundColor = [UIColor whiteColor];
+        [self.lineModeButton setTitleColor:color forState:UIControlStateNormal];
+        self.pathModeButton.backgroundColor = color;
+        [self.pathModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    }
+}
+
+- (void)setPaintingModeButtonState
+{
+    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
+    if (_whiteBoardMode) {
+        
+        self.choosePicButton.backgroundColor = [UIColor whiteColor];
+        [self.choosePicButton setTitleColor:color forState:UIControlStateNormal];
+        self.whiteBoardButton.backgroundColor = color;
+        [self.whiteBoardButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    } else {
+        self.whiteBoardButton.backgroundColor = [UIColor whiteColor];
+        [self.whiteBoardButton setTitleColor:color forState:UIControlStateNormal];
+        self.choosePicButton.backgroundColor = color;
+        [self.choosePicButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    }
 }
 
 - (IBAction)pathMode:(id)sender {
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
     self.lineCircleMode = NO;
-    self.lineModeButton.backgroundColor = [UIColor whiteColor];
-    [self.lineModeButton setTitleColor:color forState:UIControlStateNormal];
-    self.pathModeButton.backgroundColor = color;
-    [self.pathModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [self setPathModeButtonState];
     
 }
 - (IBAction)lineMode:(id)sender {
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
     self.lineCircleMode = YES;
-    self.lineModeButton.backgroundColor = color;
-    [self.lineModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.pathModeButton.backgroundColor = [UIColor whiteColor];
-    [self.pathModeButton setTitleColor:color forState:UIControlStateNormal];
+    [self setPathModeButtonState];
 
 }
 
@@ -261,8 +534,12 @@
 
 - (void)doubleTap:(UIGestureRecognizer *)gr
 {
-    UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"是否清屏？" message:nil delegate:self cancelButtonTitle:@"怂了" otherButtonTitles:@"确定", nil];
-    [alert show];
+    //UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"是否清屏？" message:nil delegate:self cancelButtonTitle:@"取消" otherButtonTitles:@"确定", nil];
+    
+    if ([_delegate respondsToSelector:@selector(shouldPresentAlert)]) {
+        [_delegate shouldPresentAlert];
+    }
+    //[alert show];
 }
 
 - (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
@@ -285,31 +562,7 @@
 - (void)tap:(UIGestureRecognizer *)gr
 {
     NSLog(@"Recognized tap");
-    CGRect rect = CGRectMake(0, 261, self.bounds.size.width, self.bounds.size.height - 261 - 76);
-    CGPoint point = [gr locationInView:self];
-    if (CGRectContainsPoint(rect, point)) {
-        [self.colorPanelView removeFromSuperview];
-        [self.widthView removeFromSuperview];
-    }
     
-    
-    self.selectedLine = [self lineAtPoint:point];
-    
-    if (self.selectedLine) {
-        
-        //使视图成为UIMenuItem动作消息的目标
-        [self becomeFirstResponder];
-        UIMenuController *menu = [UIMenuController sharedMenuController];
-        //创建标题为“Delete”的UIMenuItem对象
-        UIMenuItem *deleteitem = [[UIMenuItem alloc] initWithTitle:@"Delete" action:@selector(deleteLine:)];
-        menu.menuItems = @[deleteitem];
-        //先为UIMenuController对象设置显示区域，然后将其设为可见
-        [menu setTargetRect:CGRectMake(point.x, point.y, 2, 2) inView:self];
-        [menu setMenuVisible:YES animated:YES];
-    } else {
-        //如果没有选中的线条，就隐藏UIMenuController对象
-        [[UIMenuController sharedMenuController] setMenuVisible:NO animated:YES];
-    }
     
     [self setNeedsDisplay];
 }
@@ -333,8 +586,15 @@
 
 - (void)strokePath:(MRTRealPath *)path
 {
-    [path.pathColor set];
-    [path.realPath stroke];
+    if (path.eraserMode) {
+        //NSLog(@"绘制擦除模式");
+        [path.realPath strokeWithBlendMode:kCGBlendModeClear alpha:1];
+    } else {
+        //NSLog(@"绘制正常模式");
+        [path.pathColor set];
+        [path.realPath stroke];
+    }
+    
 }
 
 - (void)strokeCircle:(MRTCircle *)circle
@@ -367,20 +627,66 @@
 {
     [self.finishedLines removeObject:self.selectedLine];
     [self.realPaths removeObject:self.selectedLine];
+    self.selectedLine = nil;
     [self setNeedsDisplay];
+}
+
+- (void)deleteAll
+{
+    [self.linesInProgress removeAllObjects];
+    [self.circlesInProgress removeAllObjects];
+    [self.pathsInProgress removeAllObjects];
+    [self.finishedCircle removeAllObjects];
+    [self.finishedLines removeAllObjects];
+    [self.realPaths removeAllObjects];
+    [self.recycledPaths removeAllObjects];
+    [self setUndoAndCancelUndoButtonState];
+    [self setNeedsDisplay];
+    
+}
+
+- (void)hideMenu:(id)sender
+{
+    self.selectedLine = nil;
+    UIMenuController *menu=[UIMenuController sharedMenuController];
+
+    [menu setMenuVisible:NO animated:YES];
+   
 }
 
 - (void)longPress:(UIGestureRecognizer *)gr
 {
     if (gr.state == UIGestureRecognizerStateBegan) {
+        NSLog(@"长按手势状态Began");
         CGPoint point = [gr locationInView:self];
         self.selectedLine = [self lineAtPoint:point];
         //////不明白这步是什么作用??????//////
+        // (self.selectedLine) {
+         //   [self.linesInProgress removeAllObjects];
+        //}
+       
         if (self.selectedLine) {
-            [self.linesInProgress removeAllObjects];
+            
+            //使视图成为UIMenuItem动作消息的目标
+            [self becomeFirstResponder];
+            UIMenuController *menu = [UIMenuController sharedMenuController];
+            //创建标题为“Delete”的UIMenuItem对象
+            UIMenuItem *deleteItem = [[UIMenuItem alloc] initWithTitle:@"删除" action:@selector(deleteLine:)];
+            UIMenuItem *cancelItem = [[UIMenuItem alloc] initWithTitle:@"取消" action:@selector(hideMenu:)];
+            menu.menuItems = @[deleteItem,cancelItem];
+            //先为UIMenuController对象设置显示区域，然后将其设为可见
+            [menu setTargetRect:CGRectMake(point.x, point.y, 2, 2) inView:self];
+            [menu setMenuVisible:YES animated:YES];
+        } else {
+            //如果没有选中的线条，就隐藏UIMenuController对象
+            [[UIMenuController sharedMenuController] setMenuVisible:NO animated:YES];
         }
     } else if (gr.state == UIGestureRecognizerStateEnded) {
-        self.selectedLine = nil;
+        NSLog(@"长按手势状态Ended");
+        UIMenuController *menu=[UIMenuController sharedMenuController];
+        if (menu.isMenuVisible == NO) {
+            self.selectedLine = nil;
+        }
     }
     [self setNeedsDisplay];
 }
@@ -420,15 +726,17 @@
 
     
     if ([gr state] == UIGestureRecognizerStateBegan) {
+        NSLog(@"移动手势状态Began");
         UIMenuController *menu=[UIMenuController sharedMenuController];
         if (menu.isMenuVisible==YES) {
             [menu setMenuVisible:NO animated:YES];
-            self.selectedLine = nil;
+            //self.selectedLine = nil;
             return;
         }
     }
 
     if (self.moveRecognizer.state == UIGestureRecognizerStateChanged) {
+        NSLog(@"移动手势状态Changed");
         CGPoint translation = [gr translationInView:self];//以CGPoint保存移动的距离，并不是坐标
         CGPoint begin = self.selectedLine.begin;
         CGPoint end = self.selectedLine.end;
@@ -449,7 +757,7 @@
 - (void)drawRect:(CGRect)rect
 {
     //CGContextRef context = UIGraphicsGetCurrentContext();
-    
+    NSLog(@"drawRect");
     
     //绘制实时路径
     //绘制已完成路径
@@ -480,7 +788,7 @@
             [self strokeCircle:values[i]];
         }
     }
-    
+    /*
 
     //绘制已完成的圆
     [[UIColor blackColor] set];
@@ -499,7 +807,7 @@
     if (self.selectedLine) {
         [[UIColor greenColor] set];
         [self strokeLine:self.selectedLine];
-    }
+    }*/
 }
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
@@ -507,7 +815,7 @@
     //像控制台输出日志，查看触摸事件发生顺序
     NSLog(@"%@", NSStringFromSelector(_cmd));
     
-    
+    if (touches.count == 3) return;
     
     if (touches.count ==2 && self.lineCircleMode) {
         for (UITouch *t in touches) {
@@ -547,6 +855,9 @@
                 path.realPath.lineWidth = self.selectedWidth;
                 path.realPath.lineCapStyle = kCGLineCapRound;
                 path.pathColor = self.selectedColor;
+                if (_eraserButton.selected) {
+                    path.eraserMode = YES;
+                }
                 [path.realPath moveToPoint:location];
                 self.pathsInProgress[key] = path;
             }
@@ -587,7 +898,7 @@
             }
             
         }
-        if (self.circlesInProgress) {
+        if (self.circlesInProgress.count) {
             NSArray *twoPoints = [self.circlesInProgress allValues];
             MRTCircle *circle = [[MRTCircle alloc] initWithBoundaryPoints:twoPoints];
             circle.circleColor = self.selectedColor;
@@ -641,7 +952,7 @@
     /*[self.finishedLines addObject:self.currentLine];
     
     self.currentLine = nil;*/
-    
+    [self setUndoAndCancelUndoButtonState];
     [self setNeedsDisplay];
 }
 
@@ -732,6 +1043,13 @@
 
 - (BOOL)saveDrawing
 {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setFloat:_redValue forKey:@"redValue"];
+    [defaults setFloat:_greenValue forKey:@"greenValue"];
+    [defaults setFloat:_blueValue forKey:@"blueValue"];
+    [defaults setFloat:_selectedWidth forKey:@"selectedWidth"];
+    [defaults setBool:_lineCircleMode forKey:@"lineCircleMode"];
+    [defaults setBool:_whiteBoardMode forKey:@"whiteBoardMode"];
     NSString *path = [self drawingArchivePath];
     
     //固化成功返回YES
