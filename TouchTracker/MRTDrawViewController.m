@@ -38,6 +38,8 @@
 
 - (void)viewDidLoad
 {
+    //延长launchImage显示时间
+    [NSThread sleepForTimeInterval:1.5f];
     //画板背景
     UIImageView *backgroundView = [[UIImageView alloc] initWithFrame:self.view.bounds];
     backgroundView.contentMode = UIViewContentModeScaleAspectFit;
@@ -91,7 +93,7 @@
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker
 {
-    self.viewToDraw.whiteBoardMode = YES;
+    self.viewToDraw.paintMode = MRTPathModeLineCircle;
     [self.viewToDraw setPaintingModeButtonState];
     [picker dismissViewControllerAnimated:YES completion:nil];
     

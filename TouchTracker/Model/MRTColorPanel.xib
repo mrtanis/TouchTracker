@@ -513,6 +513,7 @@
                                     <constraint firstAttribute="height" constant="60" id="Ktl-Go-vYt"/>
                                 </constraints>
                                 <state key="normal" image="icon_eraser_close"/>
+                                <state key="selected" image="icon_eraser_open"/>
                                 <connections>
                                     <action selector="eraserButton:" destination="-1" eventType="touchUpInside" id="6g7-2a-NaX"/>
                                 </connections>
@@ -606,5 +607,6 @@
     </objects>
     <resources>
         <image name="icon_eraser_close" width="40" height="80"/>
+        <image name="icon_eraser_open" width="40" height="80"/>
     </resources>
 </document>

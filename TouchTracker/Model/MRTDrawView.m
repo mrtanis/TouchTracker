@@ -11,6 +11,7 @@
 #import "MRTCircle.h"
 #import "MRTRealPath.h"
 
+#define systemBlue [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1]
 @interface MRTDrawView () <UIGestureRecognizerDelegate>
 
 @property (nonatomic, strong) UIPanGestureRecognizer *moveRecognizer;
@@ -48,7 +49,9 @@
 @property (weak, nonatomic) IBOutlet UIButton *lineModeButton;
 @property (weak, nonatomic) IBOutlet UIButton *choosePicButton;
 @property (weak, nonatomic) IBOutlet UIButton *whiteBoardButton;
-@property (nonatomic) BOOL lineCircleMode;//直线和画圆模式
+@property (nonatomic) MRTPathMode pathMode;//直线和画圆模式
+@property (nonatomic) BOOL eraserMode;//橡皮擦模式
+@property (nonatomic) MRTPathMode pathModeBeforeEraser;//橡皮擦模式之前是否为直线画圆模式
 
 @property (strong, nonatomic) IBOutlet UIView *widthView;
 @property (weak, nonatomic) IBOutlet UIButton *widthDotButton;
@@ -100,10 +103,22 @@
         _greenValue = [defaults floatForKey:@"greenValue"];
         _blueValue = [defaults floatForKey:@"blueValue"];
         _selectedWidth = [defaults floatForKey:@"selectedWidth"];
-        _lineCircleMode = [defaults boolForKey:@"lineCircleMode"];
-        _whiteBoardMode = [defaults boolForKey:@"whiteBoardMode"];
+        if (_selectedWidth == 0) {
+            _selectedWidth = 3;
+        }
+        _pathMode = [defaults integerForKey:@"pathMode"];
+        if (_pathMode < 1) {
+            _pathMode = MRTPathModeRealPath;
+        }
+        _pathModeBeforeEraser = _pathMode;
+        _paintMode = [defaults integerForKey:@"paintMode"];
+        if (_paintMode < 1) {
+            _paintMode = MRTPaintModeWhiteBoard;
+        }
+        _eraserMode = NO;
     
-        _selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];
+        _selectedColor = [UIColor blackColor];//默认黑色
+        _selectedColor = [UIColor colorWithRed:self.redValue green:self.greenValue blue:self.blueValue alpha:1];//加载上次的颜色
         
         
         //[_eraserButton setImage:[UIImage imageNamed:@"icon_eraser_close"] forState:UIControlStateNormal];
@@ -117,11 +132,7 @@
         UITapGestureRecognizer * doubleTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(doubleTap:)];
         doubleTapRecognizer.numberOfTapsRequired = 2;
         doubleTapRecognizer.numberOfTouchesRequired = 2;
-        if (self.lineCircleMode) {
-            doubleTapRecognizer.delaysTouchesBegan = YES;//在识别出点击手势之前避免向UIView发送touchesBegan：withEvent：消息（避免画出小红点）
-        } else {
-            doubleTapRecognizer.delaysTouchesBegan = NO;
-        }
+        
         [self addGestureRecognizer:doubleTapRecognizer];
         
         //单击
@@ -185,7 +196,7 @@
     effectView.frame = frame;
     [colorPanel addSubview:effectView];
      */
-    
+    self.eraserButton.selected = _eraserMode;
     self.selectedColorButton.backgroundColor = self.selectedColor;
     self.redSlider.value = self.redValue;
     self.greenSlider.value = self.greenValue;
@@ -217,7 +228,15 @@
     
     self.pathModeButton.layer.cornerRadius = 5;
     self.lineModeButton.layer.cornerRadius = 5;
-    [self setPathModeButtonState];
+    if (_eraserMode) {
+        self.pathModeButton.backgroundColor = [UIColor whiteColor];
+        [self.pathModeButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        self.lineModeButton.backgroundColor = [UIColor whiteColor];
+        [self.lineModeButton setTitleColor:systemBlue forState:UIControlStateNormal];
+    } else {
+        [self setPathModeButtonState];
+    }
+    
 
     [self.widthView addSubview:self.widthDotButton];
     [self.widthSlider setValue:self.selectedWidth animated:YES];
@@ -273,49 +292,51 @@
     CGFloat green = 0.0;
     CGFloat blue = 0.0;
     CGFloat alpha = 0.0;
-    /*
+    
     [color getRed:&red green:&green blue:&blue alpha:&alpha];
     NSLog(@"当前颜色%@", color);
     NSLog(@"当前颜色rgb值:%f,%f,%f", red, green, blue);
+    _redValue = red;
+    _greenValue = green;
+    _blueValue = blue;
     _redSlider.value = red;
     _greenSlider.value = green;
-    _blueSlider.value = blue;*/
+    _blueSlider.value = blue;
     
-    CGColorRef colorCG = [color CGColor];
-    NSUInteger numComponents = CGColorGetNumberOfComponents(colorCG);
-    
-    if (numComponents == 4)
-    {
-        const CGFloat *components = CGColorGetComponents(colorCG);
-        red = components[0];
-        green = components[1];
-        blue = components[2];
-    }
-    NSLog(@"当前颜色%@", color);
-    NSLog(@"当前CG颜色rgb值:%f,%f,%f", red, green, blue);
     
 }
 - (IBAction)eraserButton:(id)sender {
     self.eraserButton.selected = !self.eraserButton.selected;
+    _eraserMode = self.eraserButton.selected;
+    if (self.eraserButton.selected) {
+        self.pathMode = MRTPathModeRealPath;
+        
+        self.pathModeButton.backgroundColor = [UIColor whiteColor];
+        [self.pathModeButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        self.lineModeButton.backgroundColor = [UIColor whiteColor];
+        [self.lineModeButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        
+    } else {
+        self.pathMode = _pathModeBeforeEraser;
+        [self setPathModeButtonState];
+    }
 }
 
 - (IBAction)choosePicture:(id)sender {
-    _whiteBoardMode = NO;
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
+    _paintMode = MRTPaintModeOnPic;
     self.whiteBoardButton.backgroundColor = [UIColor whiteColor];
-    [self.whiteBoardButton setTitleColor:color forState:UIControlStateNormal];
-    self.choosePicButton.backgroundColor = color;
+    [self.whiteBoardButton setTitleColor:systemBlue forState:UIControlStateNormal];
+    self.choosePicButton.backgroundColor = systemBlue;
     [self.choosePicButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     if ([_delegate respondsToSelector:@selector(shouldPresentImagePicker:)]) {
         [_delegate shouldPresentImagePicker:YES];
     }
 }
 - (IBAction)whiteBoardMode:(id)sender {
-    _whiteBoardMode = YES;
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
+    _paintMode = MRTPaintModeWhiteBoard;
     self.choosePicButton.backgroundColor = [UIColor whiteColor];
-    [self.choosePicButton setTitleColor:color forState:UIControlStateNormal];
-    self.whiteBoardButton.backgroundColor = color;
+    [self.choosePicButton setTitleColor:systemBlue forState:UIControlStateNormal];
+    self.whiteBoardButton.backgroundColor = systemBlue;
     [self.whiteBoardButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     if ([_delegate respondsToSelector:@selector(shouldPresentImagePicker:)]) {
         [_delegate shouldPresentImagePicker:NO];
@@ -479,44 +500,48 @@
 
 - (void)setPathModeButtonState
 {
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
-    if (_lineCircleMode) {
+    if (_pathMode == MRTPathModeLineCircle) {
         self.pathModeButton.backgroundColor = [UIColor whiteColor];
-        [self.pathModeButton setTitleColor:color forState:UIControlStateNormal];
-        self.lineModeButton.backgroundColor = color;
+        [self.pathModeButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        self.lineModeButton.backgroundColor = systemBlue;
         [self.lineModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     } else {
         self.lineModeButton.backgroundColor = [UIColor whiteColor];
-        [self.lineModeButton setTitleColor:color forState:UIControlStateNormal];
-        self.pathModeButton.backgroundColor = color;
+        [self.lineModeButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        self.pathModeButton.backgroundColor = systemBlue;
         [self.pathModeButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     }
 }
 
 - (void)setPaintingModeButtonState
 {
-    UIColor *color = [UIColor colorWithRed:0.019 green:0.473 blue:0.987 alpha:1];
-    if (_whiteBoardMode) {
+    if (_paintMode == MRTPaintModeWhiteBoard) {
         
         self.choosePicButton.backgroundColor = [UIColor whiteColor];
-        [self.choosePicButton setTitleColor:color forState:UIControlStateNormal];
-        self.whiteBoardButton.backgroundColor = color;
+        [self.choosePicButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        self.whiteBoardButton.backgroundColor = systemBlue;
         [self.whiteBoardButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     } else {
         self.whiteBoardButton.backgroundColor = [UIColor whiteColor];
-        [self.whiteBoardButton setTitleColor:color forState:UIControlStateNormal];
-        self.choosePicButton.backgroundColor = color;
+        [self.whiteBoardButton setTitleColor:systemBlue forState:UIControlStateNormal];
+        self.choosePicButton.backgroundColor = systemBlue;
         [self.choosePicButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     }
 }
 
 - (IBAction)pathMode:(id)sender {
-    self.lineCircleMode = NO;
+    _pathMode = MRTPathModeRealPath;
+    _pathModeBeforeEraser = MRTPathModeRealPath;
+    _eraserMode = NO;
+    _eraserButton.selected = NO;
     [self setPathModeButtonState];
     
 }
 - (IBAction)lineMode:(id)sender {
-    self.lineCircleMode = YES;
+    _pathMode = MRTPathModeLineCircle;
+    _pathModeBeforeEraser = MRTPathModeLineCircle;
+    _eraserMode = NO;
+    _eraserButton.selected = NO;
     [self setPathModeButtonState];
 
 }
@@ -542,22 +567,7 @@
     //[alert show];
 }
 
-- (void)alertView:(UIAlertView *)alertView clickedButtonAtIndex:(NSInteger)buttonIndex
-{
-    // 默认取消按钮索引为0
-    if (buttonIndex == 0) {
-        NSLog(@"点击了取消按钮");
-    } else {
-        NSLog(@"点击了确定按钮");
-        [self.linesInProgress removeAllObjects];
-        [self.circlesInProgress removeAllObjects];
-        [self.pathsInProgress removeAllObjects];
-        [self.finishedCircle removeAllObjects];
-        [self.finishedLines removeAllObjects];
-        [self.realPaths removeAllObjects];
-        [self setNeedsDisplay];
-    }
-}
+
 
 - (void)tap:(UIGestureRecognizer *)gr
 {
@@ -763,6 +773,7 @@
     //绘制已完成路径
     if (self.realPaths) {
         for (int i = 0; i < self.realPaths.count; i++){
+            NSLog(@"绘制第%d条已完成路径", i + 1);
             if ([self.realPaths[i] isKindOfClass:[MRTRealPath class]]) {
                 [self strokePath:self.realPaths[i]];
             } else if ([self.realPaths[i] isKindOfClass:[MRTLine class]]) {
@@ -778,6 +789,8 @@
     //绘制正在进行的路径
     NSArray *values = [self.pathsInProgress allValues];
     for (int i = 0; i < values.count; i++) {
+        
+        NSLog(@"绘制第%d条过程中路径", i + 1);
         if ([values[i] isKindOfClass:[MRTRealPath class]]) {
             
             [self strokePath:values[i]];
@@ -815,9 +828,7 @@
     //像控制台输出日志，查看触摸事件发生顺序
     NSLog(@"%@", NSStringFromSelector(_cmd));
     
-    if (touches.count == 3) return;
-    
-    if (touches.count ==2 && self.lineCircleMode) {
+    if (touches.count ==2 && _pathMode == MRTPathModeLineCircle) {
         for (UITouch *t in touches) {
             CGPoint location = [t locationInView:self];
             NSValue *key = [NSValue valueWithNonretainedObject:t];
@@ -832,16 +843,9 @@
         for (UITouch *t in touches) {
             CGPoint location = [t locationInView:self];
             NSValue *key = [NSValue valueWithNonretainedObject:t];
- 
-            /*MRTRealPath *path = [[MRTRealPath alloc] init];
-            path.path = CGPathCreateMutable();
-            path.pathWidth = self.selectedWidth;
-            path.pathColor = self.selectedColor;
-            CGPathMoveToPoint(path.path, nil, location.x, location.y);
-            self.pathsInProgress[key] = path;*/
 
             //如果直线画圆模式开启，则启用直线画圆模式
-            if (self.lineCircleMode) {
+            if (_pathMode == MRTPathModeLineCircle) {
                 MRTLine *line = [[MRTLine alloc] init];
                 line.begin = location;
                 line.end = location;
@@ -855,21 +859,13 @@
                 path.realPath.lineWidth = self.selectedWidth;
                 path.realPath.lineCapStyle = kCGLineCapRound;
                 path.pathColor = self.selectedColor;
-                if (_eraserButton.selected) {
+                if (_eraserMode) {
                     path.eraserMode = YES;
                 }
                 [path.realPath moveToPoint:location];
                 self.pathsInProgress[key] = path;
             }
         }
-        /*UITouch *t = [touches anyObject];
-         
-         //根据触摸位置创建MRTLine对象
-         CGPoint location = [t locationInView:self];
-         
-         self.currentLine = [[MRTLine alloc] init];
-         self.currentLine.begin = location;
-         self.currentLine.end = location;*/
     }
     [self setNeedsDisplay];
 }
@@ -878,41 +874,34 @@
 {
     //像控制台输出日志，查看触摸事件发生顺序
     NSLog(@"%@", NSStringFromSelector(_cmd));
-    if (touches.count != 3) {
-        for (UITouch *t in touches) {
-            NSValue *key = [NSValue valueWithNonretainedObject:t];
-            CGPoint location = [t locationInView:self];
-            //如果直线画圆模式开启，则启用直线画圆模式
-            if (self.lineCircleMode) {
-                MRTLine *line = self.pathsInProgress[key];
-                line.end = location;
-                line.lineWidth = self.selectedWidth;
-                
-                NSValue *pointValue = self.circlesInProgress[key];
-                if (pointValue) {
-                    self.circlesInProgress[key] = [NSValue valueWithCGPoint:location];
-                }
-            } else {
-                MRTRealPath *path = self.pathsInProgress[key];
-                [path.realPath addLineToPoint:location];
-            }
+    
+    for (UITouch *t in touches) {
+        NSValue *key = [NSValue valueWithNonretainedObject:t];
+        CGPoint location = [t locationInView:self];
+        //如果直线画圆模式开启，则启用直线画圆模式
+        if (_pathMode == MRTPathModeLineCircle) {
+            MRTLine *line = self.pathsInProgress[key];
+            line.end = location;
+            line.lineWidth = self.selectedWidth;
             
+            NSValue *pointValue = self.circlesInProgress[key];
+            if (pointValue) {
+                self.circlesInProgress[key] = [NSValue valueWithCGPoint:location];
+            }
+        } else {
+            MRTRealPath *path = self.pathsInProgress[key];
+            [path.realPath addLineToPoint:location];
         }
-        if (self.circlesInProgress.count) {
-            NSArray *twoPoints = [self.circlesInProgress allValues];
-            MRTCircle *circle = [[MRTCircle alloc] initWithBoundaryPoints:twoPoints];
-            circle.circleColor = self.selectedColor;
-            circle.circleWidth = self.selectedWidth;
-            [self.pathsInProgress setObject:circle forKey:@"circle"];
-
-        }
+        
     }
-    
-    
-    /*UITouch *t = [touches anyObject];
-    CGPoint location = [t locationInView:self];
-    
-    self.currentLine.end = location;*/
+    if (self.circlesInProgress.count) {
+        NSArray *twoPoints = [self.circlesInProgress allValues];
+        MRTCircle *circle = [[MRTCircle alloc] initWithBoundaryPoints:twoPoints];
+        circle.circleColor = self.selectedColor;
+        circle.circleWidth = self.selectedWidth;
+        [self.pathsInProgress setObject:circle forKey:@"circle"];
+        
+    }
     
     [self setNeedsDisplay];
 }
@@ -921,37 +910,44 @@
 {
     //像控制台输出日志，查看触摸事件发生顺序
     NSLog(@"%@", NSStringFromSelector(_cmd));
-    if (touches.count != 3) {
-        for (UITouch *t in touches) {
-            NSValue *key = [NSValue valueWithNonretainedObject:t];
-            
-            
-            if (!self.lineCircleMode) {
-                MRTRealPath *path = self.pathsInProgress[key];
+
+    for (UITouch *t in touches) {
+        NSValue *key = [NSValue valueWithNonretainedObject:t];
+        
+        
+        if (_pathMode == MRTPathModeRealPath) {
+            MRTRealPath *path = self.pathsInProgress[key];
+            if (path) {
                 [self.realPaths addObject:path];
                 [self.pathsInProgress removeObjectForKey:key];
                 
-            } else {
-                MRTLine *line = self.pathsInProgress[key];
-                if (!self.circlesInProgress[key] && line) {
-                    [self.realPaths addObject:line];
-                    [self.finishedLines addObject:line];
-                    
-                    [self.pathsInProgress removeObjectForKey:key];
-                }
+                [self.recycledPaths removeAllObjects];
+                [self setUndoAndCancelUndoButtonState];
+            }
+            
+            
+            
+        } else {
+            MRTLine *line = self.pathsInProgress[key];
+            if (!self.circlesInProgress[key] && line) {
+                [self.realPaths addObject:line];
+                [self.finishedLines addObject:line];
+                [self.pathsInProgress removeObjectForKey:key];
+                
+                [self.recycledPaths removeAllObjects];
+                [self setUndoAndCancelUndoButtonState];
             }
         }
-        if (self.pathsInProgress[@"circle"]) {
-            [self.realPaths addObject:self.pathsInProgress[@"circle"]];
-            [self.pathsInProgress removeObjectForKey:@"circle"];
-            [self.circlesInProgress removeAllObjects];
-        }
     }
-    
-    
-    /*[self.finishedLines addObject:self.currentLine];
-    
-    self.currentLine = nil;*/
+    if (self.pathsInProgress[@"circle"]) {
+        [self.realPaths addObject:self.pathsInProgress[@"circle"]];
+        [self.pathsInProgress removeObjectForKey:@"circle"];
+        [self.circlesInProgress removeAllObjects];
+        
+        [self.recycledPaths removeAllObjects];
+        [self setUndoAndCancelUndoButtonState];
+    }
+
     [self setUndoAndCancelUndoButtonState];
     [self setNeedsDisplay];
 }
@@ -962,12 +958,16 @@
     //像控制台输出日志，查看触摸事件发生顺序
     NSLog(@"%@", NSStringFromSelector(_cmd));
     
-    for (UITouch *t in touches) {
+    [self.linesInProgress removeAllObjects];
+    [self.circlesInProgress removeAllObjects];
+    [self.pathsInProgress removeAllObjects];
+    
+    /*for (UITouch *t in touches) {
         NSValue *key = [NSValue valueWithNonretainedObject:t];
         [self.linesInProgress removeObjectForKey:key];
         [self.circlesInProgress removeObjectForKey:key];
         [self.pathsInProgress removeObjectForKey:key];
-    }
+    }*/
     
     [self setNeedsDisplay];
 }
@@ -1048,8 +1048,8 @@
     [defaults setFloat:_greenValue forKey:@"greenValue"];
     [defaults setFloat:_blueValue forKey:@"blueValue"];
     [defaults setFloat:_selectedWidth forKey:@"selectedWidth"];
-    [defaults setBool:_lineCircleMode forKey:@"lineCircleMode"];
-    [defaults setBool:_whiteBoardMode forKey:@"whiteBoardMode"];
+    [defaults setInteger:_pathMode forKey:@"pathMode"];
+    [defaults setInteger:_paintMode forKey:@"paintMode"];
     NSString *path = [self drawingArchivePath];
     
     //固化成功返回YES
